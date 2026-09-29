@@ -33,10 +33,11 @@ jobs:
       - name: Build (warnings are errors)
         run: dotnet build FundFlow.sln --no-restore --configuration Release
 
+      # `dotnet test` accepts a single project, so each unit-test project gets its own invocation.
       - name: Unit tests
-        run: >
-          dotnet test tests/FundFlow.Domain.Tests tests/FundFlow.Application.Tests
-          --no-build --configuration Release --logger "trx;LogFileName=unit.trx"
+        run: |
+          dotnet test tests/FundFlow.Domain.Tests --no-build --configuration Release --logger "trx;LogFileName=domain.trx"
+          dotnet test tests/FundFlow.Application.Tests --no-build --configuration Release --logger "trx;LogFileName=application.trx"
 
       # Testcontainers starts SQL Server itself; the runner provides the Docker daemon.
       - name: Integration tests
