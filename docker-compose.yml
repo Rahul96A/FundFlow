@@ -1,0 +1,171 @@
+# FundFlow local development stack.
+#
+#   cp .env.example .env        # once; change the passwords if this machine is shared
+#   docker compose up -d --build
+#
+# Web app  http://localhost:3000      API + Swagger  http://localhost:5080/swagger
+# Mailpit  http://localhost:8025      RabbitMQ UI    http://localhost:15672
+#
+# Everything here is for development. Production secrets come from your platform's secret store, never from .env.
+
+name: fundflow
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: fundflow-sqlserver
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Copy .env.example to .env and set MSSQL_SA_PASSWORD}
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    ports:
+      - "127.0.0.1:${SQLSERVER_PORT:-1433}:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -Q "SELECT 1" -b -o /dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # One-shot: creates the database (collation, snapshot isolation) and the least-privilege application login.
+  sqlserver-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: fundflow-sqlserver-init
+    restart: "no"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_APP_PASSWORD: ${MSSQL_APP_PASSWORD:?Copy .env.example to .env and set MSSQL_APP_PASSWORD}
+    volumes:
+      - ./infra/sqlserver/init.sql:/init/init.sql:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - /opt/mssql-tools18/bin/sqlcmd -C -S sqlserver -U sa -P "$$MSSQL_SA_PASSWORD" -b -i /init/init.sql -v APP_PASSWORD="$$MSSQL_APP_PASSWORD"
+
+  redis:
+    image: redis:7-alpine
+    container_name: fundflow-redis
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Copy .env.example to .env and set REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: fundflow-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-fundflow}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Copy .env.example to .env and set RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-fundflow.conf:ro
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: fundflow-mailpit
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "5000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: src/FundFlow.Api/Dockerfile
+    image: fundflow/api:dev
+    container_name: fundflow-api
+    restart: unless-stopped
+    depends_on:
+      sqlserver-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: Server=sqlserver,1433;Database=FundFlow;User Id=fundflow_app;Password=${MSSQL_APP_PASSWORD};TrustServerCertificate=True;Encrypt=False
+      ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD},abortConnect=false
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-fundflow}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
+      Email__Host: mailpit
+      Email__Port: "1025"
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?Copy .env.example to .env and set JWT_SIGNING_KEY}
+      App__PublicBaseUrl: http://localhost:${WEB_PORT:-3000}
+      Cors__AllowedOrigins__0: http://localhost:${WEB_PORT:-3000}
+      Proxy__TrustForwardedHeaders: "true"
+      Database__AutoMigrate: "true"
+      Database__SeedDemoData: ${SEED_DEMO_DATA:-true}
+    ports:
+      - "127.0.0.1:${API_PORT:-5080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: fundflow/web:dev
+    container_name: fundflow-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  sqlserver-data:
+  redis-data:
+  rabbitmq-data:

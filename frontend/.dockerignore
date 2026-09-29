@@ -1,0 +1,12 @@
+# Keep the build context small and the image reproducible: dependencies are installed with `npm ci` inside the image.
+node_modules*
+**/node_modules
+dist
+coverage
+playwright-report
+test-results
+.vite
+*.log
+.env
+.env.*
+!.env.example
