@@ -98,3 +98,7 @@ Report vulnerabilities privately to your security contact. Highlights: tenant is
 hashing; short-lived JWT + rotating HttpOnly refresh cookie with theft detection; permission-based authorization with privilege-escalation
 guards; append-only, secret-redacting audit log; rate limiting; strict security headers; encrypted email payloads; no secrets in source
 control. Details in [docs/authentication.md](docs/authentication.md) and [docs/multi-tenancy.md](docs/multi-tenancy.md).
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Rahul Anandpara.
