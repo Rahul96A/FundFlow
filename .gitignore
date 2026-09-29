@@ -1,0 +1,45 @@
+# Build output
+bin/
+obj/
+publish/
+TestResults/
+*.trx
+coverage/
+*.log
+
+# IDE / OS
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Secrets and local configuration. NEVER commit these.
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.snk
+
+# A locally bundled copy of the React app inside the API (single-origin hosting; deploy.ps1 does this in a temp folder)
+src/FundFlow.Api/wwwroot/
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+frontend/.vite/
+*.tsbuildinfo
+
+# Local SQL Server / Redis data if someone bind-mounts them
+.data/

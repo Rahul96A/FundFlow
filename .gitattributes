@@ -1,0 +1,13 @@
+# Keep line endings identical on Windows, macOS, Linux and in CI: text files are stored (and checked out) with LF.
+* text=auto eol=lf
+
+# Binary assets: never touch or diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.pfx binary
